@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include "encoder_module.h"
 #include "pwm_sim.h"
+#include "bounce_handler.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,11 +50,6 @@ TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim7;
 
 /* USER CODE BEGIN PV */
-
-// TIM2 -> Generació PWM al simulador.
-// TIM3 -> One Pulse de 50us per senyal OUTPULSE.
-// TIM4 -> FreeRunning TIMER per comptar temps per velocitat.
-// TIM7 -> OnePulse per a rebots en polzar boto.
 
 /* USER CODE END PV */
 
@@ -98,6 +94,20 @@ int main(void)
 
   /* USER CODE BEGIN SysInit */
 
+  // Periferics info:
+  // TIM2	 -> FreeRunning TIMER per comptar temps per velocitat
+  // TIM3	 -> One Pulse (simulat) de 50us per senyal OUTPULSE
+  // TIM4	 -> Generació PWM al simulador
+  // TIM7	 -> Timer que compta rebots del boto de la placa
+  // GPIOA0	 -> Input boto (senyal INIDX)
+  // GPIOC11 -> Input signal A
+  // GPIOC12 -> Input signal B
+  // GPIOG2  -> Output de simulador de senyal A
+  // GPIOG3	 -> Output de simulador de senyal B
+  // GPIOG9  -> Output del signal de Pulse de 50us
+  // GPIOG13 -> Output de senyal de End Of Paper
+  // GPIOG14 -> Output de senyal d'error del punter
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -107,8 +117,9 @@ int main(void)
   MX_TIM4_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
-  PWM_SIM_init(GPIOG, OUTSIMA_Pin, OUTSIMB_Pin, &htim2);
-  ENC_init(GPIOC, GPIOG, INA_Pin, INB_Pin, OUTEOP_Pin, OUTERR_Pin, &htim3, &htim4);
+  PWM_SIM_init(GPIOG, OUTSIMA_Pin, OUTSIMB_Pin, &htim4);
+  ENC_init(GPIOC, GPIOG, INA_Pin, INB_Pin, OUTPULSE_Pin, OUTEOP_Pin, OUTERR_Pin, &htim3, &htim2);
+  BNC_init(GPIOA, INIDX_Pin, &htim7, INIDX_EXTI_IRQn);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -183,15 +194,14 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 72-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 36000-1;
+  htim2.Init.Period = 0xFFFFFFFFFF;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -203,21 +213,9 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -239,6 +237,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_OC_InitTypeDef sConfigOC = {0};
 
@@ -246,16 +245,21 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
+  htim3.Init.Prescaler = 72-1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 3601-1;
+  htim3.Init.Period = 50-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
   }
-  if (HAL_TIM_OnePulse_Init(&htim3, TIM_OPMODE_SINGLE) != HAL_OK)
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -266,7 +270,7 @@ static void MX_TIM3_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 1;
+  sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -276,7 +280,6 @@ static void MX_TIM3_Init(void)
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
-  HAL_TIM_MspPostInit(&htim3);
 
 }
 
@@ -301,7 +304,7 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 72-1;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 10-1;
+  htim4.Init.Period = (PWM_SIM_PERIOD/4)-1;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
@@ -345,13 +348,9 @@ static void MX_TIM7_Init(void)
   htim7.Instance = TIM7;
   htim7.Init.Prescaler = 72-1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim7.Init.Period = 16000-1;
+  htim7.Init.Period = 1000-1;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim7) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_OnePulse_Init(&htim7, TIM_OPMODE_SINGLE) != HAL_OK)
   {
     Error_Handler();
   }
@@ -399,7 +398,8 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOD, RDX_Pin|WRX_DCX_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOG, OUTSIMA_Pin|OUTSIMB_Pin|OUTEOP_Pin|OUTERR_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOG, OUTSIMA_Pin|OUTSIMB_Pin|OUTPULSE_Pin|OUTEOP_Pin
+                          |OUTERR_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : A0_Pin A1_Pin A2_Pin A3_Pin
                            A4_Pin A5_Pin SDNRAS_Pin A6_Pin
@@ -446,7 +446,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : INIDX_Pin */
   GPIO_InitStruct.Pin = INIDX_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(INIDX_GPIO_Port, &GPIO_InitStruct);
 
@@ -554,8 +554,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : OUTSIMA_Pin OUTSIMB_Pin OUTEOP_Pin OUTERR_Pin */
-  GPIO_InitStruct.Pin = OUTSIMA_Pin|OUTSIMB_Pin|OUTEOP_Pin|OUTERR_Pin;
+  /*Configure GPIO pins : OUTSIMA_Pin OUTSIMB_Pin OUTPULSE_Pin OUTEOP_Pin
+                           OUTERR_Pin */
+  GPIO_InitStruct.Pin = OUTSIMA_Pin|OUTSIMB_Pin|OUTPULSE_Pin|OUTEOP_Pin
+                          |OUTERR_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -647,7 +649,7 @@ static void MX_GPIO_Init(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
     if (GPIO_Pin == INA_Pin) ENC_encode_signal(INA_Pin);
     else if (GPIO_Pin == INB_Pin) ENC_encode_signal(INB_Pin);
-    else if (GPIO_Pin == INIDX_Pin) ENC_start_distance_count();
+    else if (GPIO_Pin == INIDX_Pin) BNC_GPIOHandler();
 }
 /* USER CODE END 4 */
 
@@ -662,7 +664,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
-    if (htim->Instance == TIM2) PWM_SIM_setSignalsAB();
+	// Simulador de PWM
+    if (htim->Instance == TIM4) PWM_SIM_setSignalsAB();
+    // Simulacio de OnePulse
+    else if (htim->Instance == TIM3) ENC_OnePulseModeSimulatedHandler();
+    // Comptar rebots (16ms)
+    else if (htim->Instance == TIM7) BNC_TIMHandler();
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM6)
   {

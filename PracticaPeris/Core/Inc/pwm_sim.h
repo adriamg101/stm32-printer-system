@@ -12,12 +12,13 @@
 #include <stdint.h>
 
 /*
- * Rang frequencies per velocitats:
- *  - Max (2mm/s) ->
- *  - Min (1mm/s) ->
+ * Rang periodes per velocitats:
+ *  - Max (10cm/s) -> 2000 us/200um
+ *  - Min (20cm/s) -> 1000 us/200um
  */
-#define PWM_SIM_FREQ 10
+#define PWM_SIM_PERIOD 2000
 
+void PWM_SIM_PressButton();
 // Funcio que va generant el pwm de les senyals A i B
 void PWM_SIM_setSignalsAB();
 

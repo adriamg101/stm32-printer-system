@@ -8,13 +8,8 @@
 #include "encoder_module.h"
 
 #define ENC_60CM 3000	// * 0.2mm = 60cm
-
-#define EXTI_INDEX	EXTI0_IRQn
 #define EXTI_SIG_A	EXTI15_10_IRQn
 #define EXTI_SIG_B	EXTI15_10_IRQn
-
-// Channel del OnePulse
-#define TIM_CHANNEL_OP TIM_CHANNEL_1
 
 typedef enum {
 	NO_DIRECTION,
@@ -23,16 +18,25 @@ typedef enum {
 } ENC_Direction;
 
 // Informacio necessaria per al encoder
-static GPIO_TypeDef *ENC_GPIO_in, *ENC_GPIO_out;
-static uint16_t ENC_GPIO_PIN_sigA, ENC_GPIO_PIN_sigB, ENC_GPIO_PIN_ERR, ENC_GPIO_PIN_EOP;
-static TIM_HandleTypeDef *ENC_htim_OP, *ENC_htim_FR;
+static GPIO_TypeDef *ENC_GPIO_in;		//
+static GPIO_TypeDef *ENC_GPIO_out;		//
+static uint16_t ENC_GPIO_PIN_sigA;		// Pin input GPIO d'entrada del senyal A
+static uint16_t ENC_GPIO_PIN_sigB;		// Pin input GPIO d'entrada del senyal A
+static uint16_t ENC_GPIO_PIN_PULSE;		// Pin output GPIO de la senyal de Pulse (OnePulse simulat)
+static uint16_t ENC_GPIO_PIN_ERR;		// Pin output GPIO de senyal d'error
+static uint16_t ENC_GPIO_PIN_EOP;		// Pin output GPIO de senyal de tot OK
+static TIM_HandleTypeDef *ENC_htim_OP;	// One-Pulse (simulat) timer
+static TIM_HandleTypeDef *ENC_htim_FR;	// Free-running timer per comptar temps
+
+// Variable de test (TODO: Esborrar en un futur)
+static uint8_t is_working;
 
 // Variables
-static uint16_t num_flancs;
-static uint8_t direction;
-static uint16_t last_time;
-static uint32_t total_time;
-static uint16_t final_velocity;
+static uint16_t num_flancs;				// Registre per comptar el nombre de flancs
+static uint8_t direction;				// Registre que indica la direccio del punter
+static unsigned long last_time;			// Registre que guarda el ultim temps registrat
+static unsigned long total_time;		// Registre que conte el temps total
+static unsigned long final_velocity;	// Registre amb la velocitat final calculada
 
 // Desactivem les interrupcions de INA i INB
 void _ENC_disable_input_interrupts() {
@@ -43,8 +47,8 @@ void _ENC_disable_input_interrupts() {
 // Funcio privada que calcula la velocitat del puntal i la guarda en una variable.
 void _ENC_calculate_velocity() {
 	// Afegim el temps al total
-	uint16_t actual_time = __HAL_TIM_GET_COUNTER(ENC_htim_FR);
-	total_time += (uint32_t)(actual_time - last_time);
+	unsigned long actual_time = __HAL_TIM_GET_COUNTER(ENC_htim_FR);
+	total_time += (unsigned long)(actual_time - last_time);
 	last_time = actual_time;
 
 	// Mirem si hem arribat al final de la fulla
@@ -52,8 +56,11 @@ void _ENC_calculate_velocity() {
 		// Activem senyal OUTEOP
 		HAL_GPIO_WritePin(ENC_GPIO_out, ENC_GPIO_PIN_EOP, GPIO_PIN_SET);
 
-		// Calcular velocidad mediana en (um/s)
-		final_velocity = (uint16_t)(total_time / (uint32_t)num_flancs);
+		// Calcular velocidad mediana en (us/200um)
+		final_velocity = (total_time / (unsigned long)num_flancs);
+
+		// TODO: Esborrar en un futur
+		is_working = 0;
 
 		_ENC_disable_input_interrupts();
 	}
@@ -63,15 +70,18 @@ void _ENC_calculate_velocity() {
 void _ENC_direction_error() {
 	_ENC_disable_input_interrupts();
 
+	// TODO: Esborrar en un futur
+	is_working = 0;
+
 	// Setejem OUTERR
 	HAL_GPIO_WritePin(ENC_GPIO_out, ENC_GPIO_PIN_ERR, GPIO_PIN_SET);
 }
 
 // Funcio que mira si la direccio es correcta i reacciona segons el resultat
 void _ENC_check_direction(ENC_Direction dir, uint8_t check_vel) {
-	if (direction != dir) {
+ 	if (direction != dir) {
 		// Mirem si es que no s'habia setejat encara
-		if (dir == NO_DIRECTION) {
+		if (direction == NO_DIRECTION) {
 			// Setejem el last time
 			last_time = __HAL_TIM_GET_COUNTER(ENC_htim_FR);
 			direction = dir;
@@ -83,13 +93,21 @@ void _ENC_check_direction(ENC_Direction dir, uint8_t check_vel) {
 	}
 }
 
+// Funcio que es crida quan salta la interrupcio del timer
+void ENC_OnePulseModeSimulatedHandler() {
+	// Posem el pulse a down
+	HAL_GPIO_WritePin(ENC_GPIO_out, ENC_GPIO_PIN_PULSE, GPIO_PIN_RESET);
+	// Parem el Timer per simular un OnePulse
+	HAL_TIM_Base_Stop_IT(ENC_htim_OP);
+}
+
 void ENC_encode_signal(uint16_t GPIO_Pin) {
 	// Primer de tot activem el TIM en mode OnePulse.
-	// OUTPULSE
-	__HAL_TIM_DISABLE(ENC_htim_OP);
-	__HAL_TIM_SET_COUNTER(ENC_htim_OP, 0);
-	HAL_TIM_OnePulse_Start(ENC_htim_OP, TIM_CHANNEL_OP);
-
+	// OUTPULSE simulat
+	// Activem el Pulse
+	HAL_GPIO_WritePin(ENC_GPIO_out, ENC_GPIO_PIN_PULSE, GPIO_PIN_SET);
+	// Activem el timer i comencem a comptar
+	HAL_TIM_Base_Start_IT(ENC_htim_OP);
 
 	// Mirem que sigui correcte la direccio i o calculem la velocitat o marquem error
 	if (GPIO_Pin == ENC_GPIO_PIN_sigA) {
@@ -114,9 +132,16 @@ void ENC_encode_signal(uint16_t GPIO_Pin) {
 }
 
 void ENC_start_distance_count() {
+	// TODO: Esborrar en un futur
+	// Mirem si ja s'habia iniciat el process per a no fer res
+	if (is_working) return;
+
 	// Setejem totes els leds d'informacio a 0
 	HAL_GPIO_WritePin(ENC_GPIO_out, ENC_GPIO_PIN_ERR, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(ENC_GPIO_out, ENC_GPIO_PIN_EOP, GPIO_PIN_RESET);
+
+	// TODO: Eliminar en un futur
+	is_working = 1;
 
 	// Setejem variables
 	direction = NO_DIRECTION;
@@ -124,6 +149,11 @@ void ENC_start_distance_count() {
 	final_velocity = 0;
 	total_time = 0;
 	last_time = 0;
+
+	__HAL_GPIO_EXTI_CLEAR_FLAG(ENC_GPIO_PIN_sigA);
+	__HAL_GPIO_EXTI_CLEAR_FLAG(ENC_GPIO_PIN_sigB);
+	HAL_NVIC_ClearPendingIRQ(EXTI_SIG_A);
+	HAL_NVIC_ClearPendingIRQ(EXTI_SIG_B);
 
 	// Activem les interrupcions de INA i INB
 	HAL_NVIC_EnableIRQ(EXTI_SIG_A);
@@ -135,23 +165,27 @@ void ENC_init(
 		GPIO_TypeDef* GPIOx_out,
 		uint16_t GPIO_SIG_A,
 		uint16_t GPIO_SIG_B,
+		uint16_t GPIO_PULSE,
 		uint16_t GPIO_EOP,
 		uint16_t GPIO_ERR,
-		TIM_HandleTypeDef *htim_OP,
-		TIM_HandleTypeDef *htim_FR) {
+		TIM_HandleTypeDef* htim_OP,
+		TIM_HandleTypeDef* htim_FR) {
 	ENC_GPIO_in = GPIOx_in;
 	ENC_GPIO_out = GPIOx_out;
 	ENC_GPIO_PIN_sigA = GPIO_SIG_A;
 	ENC_GPIO_PIN_sigB = GPIO_SIG_B;
+	ENC_GPIO_PIN_PULSE = GPIO_PULSE;
 	ENC_GPIO_PIN_ERR = GPIO_ERR;
 	ENC_GPIO_PIN_EOP = GPIO_EOP;
 	ENC_htim_OP = htim_OP;
 	ENC_htim_FR = htim_FR;
 
+	is_working = 0;
+
 	// Iniciem el free running timer
 	HAL_TIM_Base_Start(ENC_htim_FR);
 
 	// Desactivem les interrupcions de INA i INB fins INDEX
-	HAL_NVIC_EnableIRQ(EXTI_INDEX);
+	ENC_OnePulseModeSimulatedHandler();
 	_ENC_disable_input_interrupts();
 }

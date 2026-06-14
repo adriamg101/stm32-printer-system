@@ -9,9 +9,17 @@
 
 // Informacio pel simulador de PWM
 static GPIO_TypeDef *PWM_SIM_GPIO;
-static uint16_t PWM_SIM_GPIO_PIN_sigA, PWM_SIM_GPIO_PIN_sigB;
+static uint16_t PWM_SIM_GPIO_PIN_sigA;
+static uint16_t PWM_SIM_GPIO_PIN_sigB;
 
 static uint8_t order = 0;
+
+void PWM_SIM_PressButton() {
+	// La idea es que si es a l'inici de la execucio no pasa res,
+	// pero si s'esta movent el punter hi haura un canvi de direccio i
+	// per tant donara error-
+	order = ~order;
+}
 
 void PWM_SIM_setSignalsAB() {
 	// Dona igual quina senyal comença, farem bit toggle
