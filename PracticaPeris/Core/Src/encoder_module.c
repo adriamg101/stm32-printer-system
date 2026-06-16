@@ -38,6 +38,8 @@ static unsigned long last_time;			// Registre que guarda el ultim temps registra
 static unsigned long total_time;		// Registre que conte el temps total
 static unsigned long final_velocity;	// Registre amb la velocitat final calculada
 
+static SignalEdge starting_edge;
+
 // Desactivem les interrupcions de INA i INB
 void _ENC_disable_input_interrupts() {
 	HAL_NVIC_DisableIRQ(EXTI_SIG_A);
@@ -78,7 +80,7 @@ void _ENC_direction_error() {
 }
 
 // Funcio que mira si la direccio es correcta i reacciona segons el resultat
-void _ENC_check_direction(ENC_Direction dir, uint8_t check_vel) {
+void _ENC_check_direction(ENC_Direction dir, SignalEdge edge) {
  	if (direction != dir) {
 		// Mirem si es que no s'habia setejat encara
 		if (direction == NO_DIRECTION) {
@@ -89,8 +91,20 @@ void _ENC_check_direction(ENC_Direction dir, uint8_t check_vel) {
 		else _ENC_direction_error();	// Error
 	} else {
 		// Tot OK, mirem si hem de comptar la velocitat
-		if (check_vel) _ENC_calculate_velocity();
+		if (edge == starting_edge) _ENC_calculate_velocity();
 	}
+}
+
+SignalEdge _ENC_getSignalEdge(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == ENC_GPIO_PIN_sigA)
+		return (HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigA)) ? A_RISING_EDGE : A_FALLING_EDGE;
+	else
+		return (HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigB)) ? B_RISING_EDGE : B_FALLING_EDGE;
+}
+
+void _ENC_setStartingEdge(SignalEdge edge) {
+	starting_edge = edge;
+	SEN_setStartingEdge(edge);
 }
 
 // Funcio que es crida quan salta la interrupcio del timer
@@ -109,26 +123,18 @@ void ENC_encode_signal(uint16_t GPIO_Pin) {
 	// Activem el timer i comencem a comptar
 	HAL_TIM_Base_Start_IT(ENC_htim_OP);
 
+	// Edge
+	SignalEdge edge = _ENC_getSignalEdge(GPIO_Pin);
+	if (!starting_edge) _ENC_setStartingEdge(edge);	// NO_EDGE = 0
+
+	// Cridem els ADCs
+	SEN_takeADCSample(edge);
+
 	// Mirem que sigui correcte la direccio i o calculem la velocitat o marquem error
-	if (GPIO_Pin == ENC_GPIO_PIN_sigA) {
-		// Primer mirem el flanc en A
-		if (HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigA)) {
-			// High flanc (mirem velocitat)
-			_ENC_check_direction(HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigB) ? LR_DIRECTION : RL_DIRECTION, 1);
-		} else {
-			// Low flanc
-			_ENC_check_direction(HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigB) ? RL_DIRECTION : LR_DIRECTION, 0);
-		}
-	} else { // (GPIO_Pin == ENC_GPIO_PIN_sigB)
-		// Primer mirem el flanc en B
-		if (HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigB)) {
-			// High flanc
-			_ENC_check_direction(HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigA) ? RL_DIRECTION : LR_DIRECTION, 0);
-		} else {
-			// Low flanc
-			_ENC_check_direction(HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigA) ? LR_DIRECTION : RL_DIRECTION, 0);
-		}
-	}
+	if (edge == A_RISING_EDGE || edge == B_FALLING_EDGE)
+		_ENC_check_direction(HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigB) ? LR_DIRECTION : RL_DIRECTION, edge);
+	else // (edge == A_FALLING_EDGE || edge == B_RISING_EDGE)
+		_ENC_check_direction(HAL_GPIO_ReadPin(ENC_GPIO_in, ENC_GPIO_PIN_sigB) ? RL_DIRECTION : LR_DIRECTION, edge);
 }
 
 void ENC_start_distance_count() {
@@ -149,6 +155,7 @@ void ENC_start_distance_count() {
 	final_velocity = 0;
 	total_time = 0;
 	last_time = 0;
+	starting_edge = NO_EDGE;
 
 	__HAL_GPIO_EXTI_CLEAR_FLAG(ENC_GPIO_PIN_sigA);
 	__HAL_GPIO_EXTI_CLEAR_FLAG(ENC_GPIO_PIN_sigB);

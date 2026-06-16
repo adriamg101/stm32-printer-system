@@ -102,6 +102,8 @@ void Error_Handler(void);
 #define B5_GPIO_Port GPIOA
 #define VSYNC_Pin GPIO_PIN_4
 #define VSYNC_GPIO_Port GPIOA
+#define DAC_SIM_Pin GPIO_PIN_5
+#define DAC_SIM_GPIO_Port GPIOA
 #define G2_Pin GPIO_PIN_6
 #define G2_GPIO_Port GPIOA
 #define ACP_RST_Pin GPIO_PIN_7

@@ -8,8 +8,8 @@
 #ifndef INC_ENCODER_MODULE_H_
 #define INC_ENCODER_MODULE_H_
 
-#include "stm32f4xx_hal.h"
-#include <stdint.h>
+#include "constants.h"
+#include "sensor_handler.h"
 
 #define ENC_SIG_A	1
 #define ENC_SIG_B	0

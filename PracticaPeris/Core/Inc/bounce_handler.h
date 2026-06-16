@@ -8,11 +8,11 @@
 #ifndef INC_BOUNCE_HANDLER_H_
 #define INC_BOUNCE_HANDLER_H_
 
-#include "stm32f4xx_hal.h"
-#include <stdint.h>
-
+#include "constants.h"
 #include "encoder_module.h"
 #include "pwm_sim.h"
+#include "sensor_handler.h"
+
 
 void BNC_GPIOHandler();
 void BNC_TIMHandler();
