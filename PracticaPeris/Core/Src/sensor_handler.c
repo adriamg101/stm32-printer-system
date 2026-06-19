@@ -64,7 +64,7 @@ void _SEN_calcAverage(
 		// Augmentem el average_sim
 		SensorProc_ORG[(*average_pos)] += dist;
 	else if ((*average_pos_count) >= MAX_AVERAGE_POS_COUNT) {
-	// Calculem average a l'array hem de mirar que no siguin ni la primera ni la ultima posicio
+		// Calculem average a l'array hem de mirar que no siguin ni la primera ni la ultima posicio
 		uint16_t div = (((*average_pos) != 0 && (*average_pos) != (SEN_NUM_AVERAGES - 1)) ? AVERAGE_SAMPLES_MIDDLE : AVERAGE_SAMPLES_FIRST_LAST);
 		SensorProc_ORG[(*average_pos)] = SensorProc_ORG[(*average_pos)] / div;
 		(*average_pos_count) = 0;
@@ -108,8 +108,13 @@ void SEN_setStartingEdge(SignalEdge edge) { starting_edge = edge; }
 
 // Funcio que processa els samples dels sensors
 void SEN_processADCSamples(ADC_TypeDef* adc) {
-	if (adc == ADC1) _SEN_processFrontSamples();
-	else _SEN_processRearSamples();
+	if (adc == ADC1) {
+		_SEN_processFrontSamples();
+		DVIS_SetSamples(FrontSensorProc_ORG, 1);
+	} else {
+		_SEN_processRearSamples();
+		DVIS_SetSamples(RearSensorProc_ORG, 0);
+	}
 }
 
 void SEN_takeADCSample(SignalEdge edge) {
@@ -127,6 +132,7 @@ void SEN_prepareADCs() {
 	HAL_ADC_Start_DMA(sen_rear_hadc, (uint32_t*)RearSensor_ORG, SEN_NUM_SAMPLES);
 
 	starting_edge = NO_EDGE;
+	DVIS_ClearSamples();
 }
 
 void SEN_stopADCs() {

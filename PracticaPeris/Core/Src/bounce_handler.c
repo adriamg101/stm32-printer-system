@@ -38,9 +38,8 @@ void BNC_TIMHandler() {
 	if (butt_state && new_butt_state) {
 		// Important executar abans el handler del PWM_SIM.
 		PWM_SIM_PressButton();
-		ENC_start_distance_count();
-		// Preparem els ADCs per a la recepcio
 		SEN_prepareADCs();
+		ENC_start_distance_count();
 	}
 	butt_state = new_butt_state;
 

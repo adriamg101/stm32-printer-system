@@ -9,6 +9,7 @@
 #define INC_SENSOR_HANDLER_H_
 
 #include "constants.h"
+#include "data_visualizer.h"
 
 #define SEN_NUM_SAMPLES	 3000
 #define SEN_NUM_AVERAGES 300
